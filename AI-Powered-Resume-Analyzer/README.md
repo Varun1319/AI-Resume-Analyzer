@@ -12,9 +12,6 @@ Developed an advanced AI application that leverages Retrieval-Augmented Generati
 2. Installation
 3. Usage
 4. Features
-5. Contributing
-6. License
-7. Contact
 
 <br />
 
@@ -31,38 +28,9 @@ Developed an advanced AI application that leverages Retrieval-Augmented Generati
 - Hugging Face
 - Streamlit
 
-<br />
-
-**Installation**
-
-To run this project, you need to install the following packages:
-
-```python
-pip install numpy
-pip install pandas
-pip install streamlit
-pip install streamlit_option_menu
-pip install streamlit_extras
-pip install PyPDF2
-pip install langchain
-pip install openai
-pip install tiktoken
-pip install faiss-cpu
-pip install selenium
-```
 
 <br />
 
-**Usage**
-
-To use this project, follow these steps:
-
-1. Clone the repository: ```https://github.com/gopiashokan/AI-Powered-Resume-Analyzer-and-LinkedIn-Scraper-with-Selenium.git```
-2. Install the required packages: ```pip install -r requirements.txt```
-3. Run the Streamlit app: ```streamlit run app.py```
-4. Access the app in your browser at ```http://localhost:8501```
-
-<br />
 
 **Features**
 
@@ -92,9 +60,6 @@ To use this project, follow these steps:
 - **Weakness:** AI conducts thorough analysis to pinpoint weaknesses and offers tailored solutions for transforming them into strengths, empowering job seekers.
 - **Suggestion:** AI provides personalized job title recommendations that align closely with the user's qualifications and resume content, facilitating an optimized job search experience.
 
-<br />
-
-🚀 **Streamlit application:** [https://huggingface.co/spaces/gopiashokan/Resume-Analyzer-AI](https://huggingface.co/spaces/gopiashokan/Resume-Analyzer-AI)
 
 <br />
 
@@ -104,27 +69,5 @@ To use this project, follow these steps:
 
 <br />
 
-🎥 **Project Demo Video:** [https://youtu.be/wFouWeK7NPg](https://youtu.be/wFouWeK7NPg)
 
-<br />
-
-**Contributing**
-
-Contributions to this project are welcome! If you encounter any issues or have suggestions for improvements, please feel free to submit a pull request.
-
-<br />
-
-**License**
-
-This project is licensed under the MIT License. Please review the LICENSE file for more details.
-
-<br />
-
-**Contact**
-
-📧 Email: gopiashokankiot@gmail.com 
-
-🌐 LinkedIn: [linkedin.com/in/gopiashokan](https://www.linkedin.com/in/gopiashokan)
-
-For any further questions or inquiries, feel free to reach out. We are happy to assist you with any queries.
 
