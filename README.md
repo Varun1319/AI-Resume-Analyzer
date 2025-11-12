@@ -9,9 +9,7 @@ Developed an advanced AI application that leverages Retrieval-Augmented Generati
 **Table of Contents**
 
 1. Key Technologies and Skills
-2. Installation
-3. Usage
-4. Features
+2. Features
 
 <br />
 
@@ -68,6 +66,7 @@ Developed an advanced AI application that leverages Retrieval-Augmented Generati
 - This streamlined process enables users to easily review scraped job details and apply for positions, simplifying their job search and application experience.
 
 <br />
+
 
 
 
