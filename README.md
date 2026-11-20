@@ -23,53 +23,34 @@ Every (job description, resume) pair is turned into seven features:
 |---|---|
 | `tfidf_score` | TF-IDF cosine similarity (English stop words removed, 5,000 terms) |
 | `bert_score` | Cosine similarity of Sentence-BERT embeddings (`all-MiniLM-L6-v2`, on GPU when available) |
-| `skill_score` | Share of the JD's skills that appear in the resume, using spaCy tokens matched against a curated skill dictionary (single words and 2–3 word phrases) |
+| `skill_score` | Share of the JD's skills that appear in the resume, using spaCy tokens matched against the skill dictionary in `data/skills.txt` (single words and 2–3 word phrases) |
 | `exp_years`, `exp_score` | Years of experience parsed from the text, and the same value scaled to 0–1 (capped at 5 years) |
 | `edu_level`, `edu_score` | Highest degree detected (Diploma/12th, Bachelor's, Master's, PhD), and its 0–1 score |
 
 A scikit-learn `GradientBoostingClassifier` (200 trees, learning rate 0.05, depth 3) turns these features into the probability that the resume matches the job, which is the score shown in the app. If no trained model is found, the app falls back to a weighted formula: 60% text similarity (itself 40% TF-IDF and 60% Sentence-BERT), 20% skills, 10% experience and 10% education.
 
+Features are built for a whole batch at once: every distinct text goes through Sentence-BERT in a single call, and the ranker scores all rows in one prediction. Training uses the same feature builder, so the model sees exactly the features it will be scored on.
+
 ### Explainability
 
-`shap_explainer.py` runs a SHAP `TreeExplainer` on the trained model and returns each feature's contribution to a single prediction, plus the model's base value.
+`resume_analyzer/ranking/explain.py` runs a SHAP `TreeExplainer` on the same ranker the app scores with and returns each feature's contribution to a single prediction, plus the model's base value.
 
 ### Resume feedback (RAG)
 
 1. PyPDF2 extracts the resume text, which is split into 700-character chunks with a 200-character overlap.
-2. The chunks and the question are embedded with OpenAI's `text-embedding-3-small`.
-3. The 3 chunks most similar to the question (cosine similarity) are sent to `gpt-3.5-turbo` as context, together with the opening sections of the resume.
+2. All chunks and the four questions are embedded in one request to OpenAI's `text-embedding-3-small`.
+3. For each question, the 3 most similar chunks (cosine similarity) are sent to `gpt-3.5-turbo` as context, together with the opening sections of the resume. The four chat calls run in parallel.
+4. Results are stored per uploaded file, so switching between the feedback tabs never repeats the analysis.
 
 ### LinkedIn jobs
 
 Selenium drives headless Chrome through LinkedIn's public job search (no login), scrolls until enough listings load, and collects each job's company, title, location and URL, de-duplicated by URL. Each listing is then scored against the uploaded resume, using its title, company and location as the job text.
-
-## Training and evaluation
-
-The ranker is trained on a Kaggle resume–job matching dataset, where each row pairs a candidate's resume fields with a job posting and a `matched_score`.
-
-1. Save the dataset as `main/resume_data.csv`.
-2. Build labeled pairs:
-   ```bash
-   cd main
-   python build_training_data.py
-   ```
-   Pairs with `matched_score` ≥ 0.75 become matches and pairs ≤ 0.50 become non-matches. The ambiguous middle is dropped, and the larger class is down-sampled so both classes are the same size. The result is `training_data.csv`.
-3. Train and evaluate:
-   ```bash
-   python train_ranker.py
-   ```
-   This computes the features, holds out a stratified 20% test split, trains on the other 80%, and reports on the held-out data:
-   - ROC-AUC, accuracy, precision, recall and F1 for the trained ranker
-   - ROC-AUC for two baselines: TF-IDF keyword matching alone, and the weighted fallback formula
-
-   The model is saved to `models/ranker_gb.pkl` and the metrics to `models/ranker_gb_metrics.json`. The saved model is the same one that was evaluated.
 
 ## Getting started
 
 Requirements: Python 3.10+, an OpenAI API key for the feedback tabs, and Chrome with ChromeDriver for the LinkedIn tab.
 
 ```bash
-cd main
 pip install -r requirements.txt
 python -m spacy download en_core_web_sm
 streamlit run app.py
@@ -77,24 +58,53 @@ streamlit run app.py
 
 Paste your OpenAI API key into the app when prompted; it is kept only in the Streamlit session. Ranking works without a trained model by using the fallback formula, but SHAP explanations need one (see [Training and evaluation](#training-and-evaluation)).
 
+## Training and evaluation
+
+The ranker is trained on a Kaggle resume–job matching dataset, where each row pairs a candidate's resume fields with a job posting and a `matched_score`. Run these commands from the repository root.
+
+1. Save the dataset as `data/resume_data.csv`.
+2. Build labeled pairs:
+   ```bash
+   python -m training.build_dataset
+   ```
+   Pairs with `matched_score` ≥ 0.75 become matches and pairs ≤ 0.50 become non-matches. The ambiguous middle is dropped, and the larger class is down-sampled so both classes are the same size. The result is `data/training_data.csv`.
+3. Train and evaluate:
+   ```bash
+   python -m training.train
+   ```
+   This computes the features, holds out a stratified 20% test split, trains on the other 80%, and reports on the held-out data:
+   - ROC-AUC, accuracy, precision, recall and F1 for the trained ranker
+   - ROC-AUC for two baselines: TF-IDF keyword matching alone, and the weighted fallback formula
+
+   The model is saved to `models/ranker_gb.pkl` and the metrics to `models/ranker_gb_metrics.json`. The saved model is the same one that was evaluated, and the split and model are seeded, so the numbers are reproducible.
+
+## Tests
+
+```bash
+pytest
+```
+
+The suite uses a deterministic stand-in for Sentence-BERT and a fake OpenAI client, so it needs no model downloads, API key or trained model, and runs in a few seconds. The skill-matching tests use spaCy's `en_core_web_sm` and are skipped if it isn't installed.
+
 ## Project structure
 
 ```
-main/
-├── app.py                    Streamlit UI (candidate and recruiter modes)
-├── ml_model.py               Feature extraction and match scoring
-├── bert_model.py             Sentence-BERT similarity
-├── skills_extractor.py       spaCy skill extraction
-├── experience_education.py   Experience and education parsing
-├── resume_analyzer.py        PDF chunking and RAG feedback with OpenAI
-├── shap_explainer.py         SHAP explanations for the trained model
-├── linkedin_scraper.py       LinkedIn job search and job ranking
-├── build_training_data.py    Builds labeled pairs from the Kaggle dataset
-├── train_ranker.py           Trains and evaluates the ranker
-├── config.py                 Model paths and defaults
-└── ui_utils.py               Page styling
+├── app.py                  Streamlit entry point: sidebar and page routing
+├── data/skills.txt         Skill dictionary used for skill matching
+├── resume_analyzer/
+│   ├── config.py           Paths, model names and thresholds
+│   ├── documents.py        PDF text extraction and chunking
+│   ├── features/           TF-IDF, Sentence-BERT, skills, experience/education, feature builder
+│   ├── ranking/            Trained ranker with fallback formula, SHAP explanations
+│   ├── llm/                Prompts and retrieval-augmented resume feedback
+│   ├── jobs/               LinkedIn job scraper
+│   └── ui/                 One module per page: candidate, recruiter, LinkedIn
+├── training/               Dataset builder and training script
+└── tests/                  pytest suite
 ```
+
+Only `resume_analyzer/ui/` imports Streamlit; everything else is plain Python that can be used and tested on its own.
 
 ## Tech stack
 
-Python, Streamlit, scikit-learn, Sentence-Transformers (PyTorch), spaCy, SHAP, OpenAI API, PyPDF2, Selenium, pandas, NumPy
+Python, Streamlit, scikit-learn, Sentence-Transformers (PyTorch), spaCy, SHAP, OpenAI API, PyPDF2, Selenium, pandas, NumPy, pytest
