@@ -1,4 +1,6 @@
 # resume_analyzer.py
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
 import streamlit as st
 from PyPDF2 import PdfReader
@@ -40,13 +42,6 @@ class ResumeAnalyzer:
         return OpenAI(api_key=key)
 
     @staticmethod
-    def _get_embeddings(client: OpenAI, texts, model: str = "text-embedding-3-small"):
-        if not texts:
-            return np.zeros((0, 0))
-        resp = client.embeddings.create(model=model, input=texts)
-        return [np.array(item.embedding, dtype=float) for item in resp.data]
-
-    @staticmethod
     def _cosine_sim_matrix(matrix, vector):
         if matrix.size == 0 or vector.size == 0:
             return np.array([])
@@ -55,18 +50,24 @@ class ResumeAnalyzer:
         return np.dot(mat_norm, vec_norm)
 
     @staticmethod
-    def openai_analyze(chunks, prompt, top_k: int = 3) -> str:
-        """
-        Retrieve top-k relevant chunks using embeddings, then ask OpenAI to analyze.
-        """
-        client = ResumeAnalyzer._make_client()
-        chunk_vectors = np.vstack(ResumeAnalyzer._get_embeddings(client, chunks))
-        query_vec = ResumeAnalyzer._get_embeddings(client, [prompt])[0]
-        sims = ResumeAnalyzer._cosine_sim_matrix(chunk_vectors, query_vec)
-        top_idx = np.argsort(-sims)[:top_k]
-        selected = [chunks[i] for i in top_idx]
-        context = "\n\n---\n\n".join(selected)
+    def analyze(client: OpenAI, chunks: list[str], prompts: dict[str, str], top_k: int = 3) -> dict[str, str]:
+        """Answer each prompt from its top-k most similar chunks: one embeddings request, chat calls in parallel."""
+        resp = client.embeddings.create(model="text-embedding-3-small", input=chunks + list(prompts.values()))
+        vectors = np.array([d.embedding for d in sorted(resp.data, key=lambda d: d.index)], dtype=float)
+        chunk_vecs, prompt_vecs = vectors[:len(chunks)], vectors[len(chunks):]
 
+        contexts = []
+        for vec in prompt_vecs:
+            sims = ResumeAnalyzer._cosine_sim_matrix(chunk_vecs, vec)
+            top_idx = np.argsort(-sims)[:top_k]
+            contexts.append("\n\n---\n\n".join(chunks[i] for i in top_idx))
+
+        with ThreadPoolExecutor(max_workers=len(prompts)) as pool:
+            answers = pool.map(ResumeAnalyzer._ask, [client] * len(prompts), prompts.values(), contexts)
+            return dict(zip(prompts, answers))
+
+    @staticmethod
+    def _ask(client: OpenAI, prompt: str, context: str) -> str:
         full_prompt = f"""
 You are an assistant that analyzes resumes carefully.
 
@@ -129,27 +130,17 @@ Answer clearly and professionally.
         Run all analyses (summary, strengths, weaknesses, job titles) and
         store results into Streamlit session_state.
         """
+        client = ResumeAnalyzer._make_client()
         st.info("⏳ Generating all insights (summary, strengths, weaknesses, titles)...")
 
         # Use only first few chunks to keep prompts compact
         base_text = " ".join(chunks[:6])
-
-        summary = ResumeAnalyzer.openai_analyze(
-            chunks, ResumeAnalyzer.summary_prompt(base_text)
-        )
-        strength = ResumeAnalyzer.openai_analyze(
-            chunks, ResumeAnalyzer.strength_prompt(base_text)
-        )
-        weakness = ResumeAnalyzer.openai_analyze(
-            chunks, ResumeAnalyzer.weakness_prompt(base_text)
-        )
-        job_titles = ResumeAnalyzer.openai_analyze(
-            chunks, ResumeAnalyzer.job_title_prompt(base_text)
-        )
-
-        st.session_state["resume_summary"] = summary
-        st.session_state["resume_strength"] = strength
-        st.session_state["resume_weakness"] = weakness
-        st.session_state["resume_jobtitles"] = job_titles
+        prompts = {
+            "resume_summary": ResumeAnalyzer.summary_prompt(base_text),
+            "resume_strength": ResumeAnalyzer.strength_prompt(base_text),
+            "resume_weakness": ResumeAnalyzer.weakness_prompt(base_text),
+            "resume_jobtitles": ResumeAnalyzer.job_title_prompt(base_text),
+        }
+        st.session_state.update(ResumeAnalyzer.analyze(client, chunks, prompts))
 
         st.success("✅ All resume insights generated! You can navigate using the sidebar.")

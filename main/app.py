@@ -119,9 +119,14 @@ def main():
             chunks = cached_pdf_to_chunks(file_bytes)
             st.session_state["resume_chunks"] = chunks
 
-            # Only run heavy OpenAI analysis on LLM tabs
-            if option in ["Summary", "Strength", "Weakness", "Job Titles"]:
+            # Streamlit reruns this script on every interaction, so analyze each upload only once.
+            file_hash = hashlib.sha256(file_bytes).hexdigest()
+            if (
+                option in ["Summary", "Strength", "Weakness", "Job Titles"]
+                and st.session_state.get("analyzed_resume_hash") != file_hash
+            ):
                 ResumeAnalyzer.run_all(chunks)
+                st.session_state["analyzed_resume_hash"] = file_hash
 
 
     # 👉 After this, keep your sidebar code and page logic as you already have:
