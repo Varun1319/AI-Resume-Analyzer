@@ -221,25 +221,10 @@ class LinkedInScraper:
                         st.write(row["URL"])
 
                     with c2:
-                        apply_url = row["URL"]
-                        st.markdown(
-                            f"""
-                            <a href="{apply_url}" target="_blank">
-                                <button style="
-                                    background-color:#0A66C2;
-                                    color:white;
-                                    border:none;
-                                    padding:8px 16px;
-                                    border-radius:6px;
-                                    cursor:pointer;
-                                    font-weight:600;
-                                ">
-                                    Apply
-                                </button>
-                            </a>
-                            """,
-                            unsafe_allow_html=True,
-                        )
+                        # The URL is scraped from an external page, so it is never
+                        # rendered as raw HTML, and only web links get a button.
+                        if str(row["URL"]).startswith(("https://", "http://")):
+                            st.link_button("Apply", row["URL"])
 
             # Download original jobs
             st.download_button(
