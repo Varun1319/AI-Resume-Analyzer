@@ -37,9 +37,6 @@ class ResumeAnalyzer:
             st.warning("⚠️ Please paste your OpenAI API key in the box above.")
             st.stop()
 
-        # Debug: show prefix so we see what is actually used
-        st.write("DEBUG – Using API key starting with:", str(key)[:10])
-
         return OpenAI(api_key=key)
 
     @staticmethod
