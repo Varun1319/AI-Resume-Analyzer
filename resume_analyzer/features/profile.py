@@ -1,4 +1,4 @@
-# experience_education.py
+# features/profile.py: years of experience and education level
 
 from typing import Tuple
 from functools import lru_cache

@@ -1,9 +1,18 @@
-# skills_extractor.py
+# features/skills.py
 
 from __future__ import annotations
+from pathlib import Path
 from typing import Set
 from functools import lru_cache
 import spacy
+
+from resume_analyzer.config import SKILLS_PATH
+
+
+def load_skill_terms(path: Path = SKILLS_PATH) -> Set[str]:
+    """Skill dictionary: one skill per line; blank lines and '#' comments are ignored."""
+    lines = Path(path).read_text(encoding="utf-8").splitlines()
+    return {line.strip().lower() for line in lines if line.strip() and not line.lstrip().startswith("#")}
 
 
 class SkillExtractor:
@@ -11,30 +20,13 @@ class SkillExtractor:
     Extracts technical skills from free-form resume / JD text.
     Uses:
     - spaCy for tokenization
-    - A curated dictionary of skill terms
+    - A curated dictionary of skill terms (data/skills.txt)
     """
 
     def __init__(self) -> None:
         # Load spaCy model with unnecessary components disabled
         self.nlp = spacy.load("en_core_web_sm", disable=["parser", "ner", "textcat"])
-
-        # Canonical skill list (you can expand this anytime)
-        self.skill_terms: Set[str] = {
-            "python", "java", "c", "c++", "c#", "javascript", "typescript",
-            "react", "angular", "vue",
-            "node", "nodejs", "node.js",
-            "django", "flask", "fastapi",
-            "spring", "spring boot",
-            "html", "css", "bootstrap", "tailwind",
-            "sql", "mysql", "postgres", "mongodb", "redis",
-            "aws", "azure", "gcp",
-            "docker", "kubernetes",
-            "git", "github",
-            "linux", "unix",
-            "machine learning", "deep learning", "nlp",
-            "pandas", "numpy", "scikit-learn", "tensorflow", "pytorch",
-            "rest", "rest api", "graphql",
-        }
+        self.skill_terms: Set[str] = load_skill_terms()
 
     # -------------------- INTERNAL CACHED CORE -------------------- #
     @lru_cache(maxsize=2048)

@@ -2,7 +2,7 @@ from functools import lru_cache
 
 import numpy as np
 
-from config import BERT_MODEL_NAME
+from resume_analyzer.config import BERT_MODEL_NAME
 
 
 class BertResumeMatcher:

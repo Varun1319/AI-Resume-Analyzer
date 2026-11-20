@@ -1,10 +1,11 @@
-# shap_explainer.py
+# ranking/explain.py
 from __future__ import annotations
 from functools import lru_cache
 import numpy as np
 import pandas as pd
 
-from ml_model import FEATURE_COLUMNS, LocalMLModel, load_ranker
+from resume_analyzer.features.builder import FEATURE_COLUMNS, build_feature_rows
+from resume_analyzer.ranking.ranker import load_ranker
 
 
 @lru_cache(maxsize=1)
@@ -18,7 +19,7 @@ def _get_explainer():
     return shap.TreeExplainer(model)
 
 
-def explain_single(jd_text: str, resume_text: str) -> tuple[pd.DataFrame, float]:
+def explain_match(jd_text: str, resume_text: str) -> tuple[pd.DataFrame, float]:
     """
     Compute SHAP values for a single JD–resume pair.
 
@@ -30,11 +31,10 @@ def explain_single(jd_text: str, resume_text: str) -> tuple[pd.DataFrame, float]
     if explainer is None:
         raise RuntimeError(
             "No trained model/explainer available. "
-            "Train the ranker first (python train_ranker.py)."
+            "Train the ranker first (python -m training.train)."
         )
 
-    # Build feature dict using your existing pipeline
-    feats = LocalMLModel.compute_feature_dict(jd_text, resume_text)
+    feats = build_feature_rows([(jd_text, resume_text)])[0]
 
     # Convert to ordered vector
     x = np.array([[feats[col] for col in FEATURE_COLUMNS]], dtype=float)

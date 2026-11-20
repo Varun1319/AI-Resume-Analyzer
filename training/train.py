@@ -1,4 +1,4 @@
-# train_ranker.py
+# training/train.py
 import json
 import os
 import pandas as pd
@@ -8,7 +8,9 @@ from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_sc
 from sklearn.model_selection import train_test_split
 import joblib
 
-from ml_model import LocalMLModel, FEATURE_COLUMNS, MODEL_PATH
+from resume_analyzer.config import RANKER_MODEL_PATH, TRAINING_DATA_PATH
+from resume_analyzer.features.builder import FEATURE_COLUMNS, build_feature_rows
+from resume_analyzer.ranking.ranker import heuristic_score
 
 TEST_SIZE = 0.2
 RANDOM_STATE = 42
@@ -23,7 +25,7 @@ def build_features_from_csv(csv_path: str):
     assert "label" in df.columns, "CSV must have 'label' column"
 
     pairs = [(str(jd), str(res)) for jd, res in zip(df["jd_text"], df["resume_text"])]
-    rows = LocalMLModel.compute_feature_rows(pairs)
+    rows = build_feature_rows(pairs)
 
     X = np.array([[feats[col] for col in FEATURE_COLUMNS] for feats in rows], dtype=float)
     y = df["label"].astype(int).to_numpy()
@@ -37,7 +39,7 @@ def evaluate(model, X_test, y_test) -> dict:
 
     tfidf_only = X_test[:, FEATURE_COLUMNS.index("tfidf_score")]
     heuristic = [
-        LocalMLModel._heuristic_score(dict(zip(FEATURE_COLUMNS, row)))
+        heuristic_score(dict(zip(FEATURE_COLUMNS, row)))
         for row in X_test
     ]
 
@@ -58,10 +60,10 @@ def evaluate(model, X_test, y_test) -> dict:
     }
 
 
-def train_and_save_model(csv_path: str, model_path: str = MODEL_PATH):
-    print(f"[train_ranker] Loading training data from {csv_path}")
+def train_and_save_model(csv_path=TRAINING_DATA_PATH, model_path=RANKER_MODEL_PATH):
+    print(f"[train] Loading training data from {csv_path}")
     X, y = build_features_from_csv(csv_path)
-    print(f"[train_ranker] Got {X.shape[0]} samples, {X.shape[1]} features")
+    print(f"[train] Got {X.shape[0]} samples, {X.shape[1]} features")
 
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=TEST_SIZE, stratify=y, random_state=RANDOM_STATE
@@ -76,27 +78,26 @@ def train_and_save_model(csv_path: str, model_path: str = MODEL_PATH):
         random_state=RANDOM_STATE,
     )
 
-    print(f"[train_ranker] Training on {len(y_train)} samples, holding out {len(y_test)} for evaluation...")
+    print(f"[train] Training on {len(y_train)} samples, holding out {len(y_test)} for evaluation...")
     model.fit(X_train, y_train)
 
     metrics = evaluate(model, X_test, y_test)
     metrics["n_train"] = int(len(y_train))
     metrics["n_test"] = int(len(y_test))
-    print("[train_ranker] Held-out results:")
+    print("[train] Held-out results:")
     print(json.dumps(metrics, indent=2))
 
     # Ensure models directory exists
     os.makedirs(os.path.dirname(model_path), exist_ok=True)
 
     joblib.dump(model, model_path)
-    print(f"[train_ranker] Saved trained ranker to {model_path}")
+    print(f"[train] Saved trained ranker to {model_path}")
 
     metrics_path = os.path.splitext(model_path)[0] + "_metrics.json"
     with open(metrics_path, "w") as f:
         json.dump(metrics, f, indent=2)
-    print(f"[train_ranker] Saved held-out metrics to {metrics_path}")
+    print(f"[train] Saved held-out metrics to {metrics_path}")
 
 
 if __name__ == "__main__":
-    csv_path = "training_data.csv"
-    train_and_save_model(csv_path)
+    train_and_save_model()

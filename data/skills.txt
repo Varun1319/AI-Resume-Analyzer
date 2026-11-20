@@ -1,0 +1,49 @@
+# Skills matched by the skill extractor: one per line, lowercase.
+# Multi-word skills (up to three words) are matched as phrases.
+python
+java
+c
+c++
+c#
+javascript
+typescript
+react
+angular
+vue
+node
+nodejs
+node.js
+django
+flask
+fastapi
+spring
+spring boot
+html
+css
+bootstrap
+tailwind
+sql
+mysql
+postgres
+mongodb
+redis
+aws
+azure
+gcp
+docker
+kubernetes
+git
+github
+linux
+unix
+machine learning
+deep learning
+nlp
+pandas
+numpy
+scikit-learn
+tensorflow
+pytorch
+rest
+rest api
+graphql

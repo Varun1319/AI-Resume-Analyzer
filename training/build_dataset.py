@@ -1,10 +1,11 @@
-# build_training_data.py
+# training/build_dataset.py
 import pandas as pd
 import os
 
+from resume_analyzer.config import RAW_DATASET_PATH, TRAINING_DATA_PATH
 
-INPUT_PATH = "resume_data.csv"      # your Kaggle file
-OUTPUT_PATH = "training_data.csv"   # will be created
+INPUT_PATH = RAW_DATASET_PATH       # the Kaggle resume dataset
+OUTPUT_PATH = TRAINING_DATA_PATH    # will be created
 
 
 def build_text(row, cols):
@@ -22,7 +23,7 @@ def build_text(row, cols):
 
 def main():
     if not os.path.exists(INPUT_PATH):
-        raise FileNotFoundError(f"Could not find {INPUT_PATH} in current folder")
+        raise FileNotFoundError(f"Could not find {INPUT_PATH}. Download the Kaggle resume dataset and save it there.")
 
     df = pd.read_csv(INPUT_PATH)
 
