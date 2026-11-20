@@ -98,5 +98,7 @@ class SkillExtractor:
         return float(score), resume_skills, jd_skills
 
 
-# ✅ SINGLETON INSTANCE USED THROUGHOUT THE APP
-skill_extractor = SkillExtractor()
+@lru_cache(maxsize=1)
+def get_skill_extractor() -> SkillExtractor:
+    """Shared instance; spaCy loads on first use rather than at import."""
+    return SkillExtractor()

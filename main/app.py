@@ -2,7 +2,7 @@ import hashlib
 from typing import List
 import numpy as np
 from shap_explainer import explain_single
-from skills_extractor import skill_extractor
+from skills_extractor import get_skill_extractor
 from experience_education import analyze_resume_experience_education
 import pandas as pd
 import streamlit as st
@@ -182,7 +182,7 @@ def main():
                 score = LocalMLModel.compute_fit_score(job_desc, full_resume_text)
 
                 # ---- Skills breakdown ----
-                skill_score, resume_skills, jd_skills = skill_extractor.skill_match(
+                skill_score, resume_skills, jd_skills = get_skill_extractor().skill_match(
                     full_resume_text, job_desc
                 )
                 common_skills = resume_skills.intersection(jd_skills)

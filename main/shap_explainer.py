@@ -1,23 +1,21 @@
 # shap_explainer.py
 from __future__ import annotations
-import os
+from functools import lru_cache
 import numpy as np
 import pandas as pd
-import shap
-import joblib
 
-from ml_model import FEATURE_COLUMNS, MODEL_PATH, LocalMLModel
+from ml_model import FEATURE_COLUMNS, LocalMLModel, load_ranker
 
 
-# Try to load the trained model and build a global explainer
-if os.path.exists(MODEL_PATH):
-    MODEL = joblib.load(MODEL_PATH)
-    EXPLAINER = shap.TreeExplainer(MODEL)
-    print(f"[SHAP] Loaded model from {MODEL_PATH} for explainability.")
-else:
-    MODEL = None
-    EXPLAINER = None
-    print("[SHAP] No trained model found. Explainability will not work.")
+@lru_cache(maxsize=1)
+def _get_explainer():
+    """SHAP explainer over the same ranker the app scores with, built on first use."""
+    model = load_ranker()
+    if model is None:
+        return None
+    import shap
+
+    return shap.TreeExplainer(model)
 
 
 def explain_single(jd_text: str, resume_text: str) -> tuple[pd.DataFrame, float]:
@@ -28,7 +26,8 @@ def explain_single(jd_text: str, resume_text: str) -> tuple[pd.DataFrame, float]
         df: DataFrame with columns [feature, value, shap_value, abs_shap]
         base_value: model's expected value (bias term)
     """
-    if MODEL is None or EXPLAINER is None:
+    explainer = _get_explainer()
+    if explainer is None:
         raise RuntimeError(
             "No trained model/explainer available. "
             "Train the ranker first (python train_ranker.py)."
@@ -40,7 +39,7 @@ def explain_single(jd_text: str, resume_text: str) -> tuple[pd.DataFrame, float]
     # Convert to ordered vector
     x = np.array([[feats[col] for col in FEATURE_COLUMNS]], dtype=float)
 
-    shap_vals = EXPLAINER.shap_values(x)
+    shap_vals = explainer.shap_values(x)
 
     # For tree models, shap_values is (n_samples, n_features)
     if isinstance(shap_vals, list):
@@ -61,7 +60,7 @@ def explain_single(jd_text: str, resume_text: str) -> tuple[pd.DataFrame, float]
     df = df.sort_values("abs_shap", ascending=False)
 
     # Expected value (baseline prediction)
-    base_value = EXPLAINER.expected_value
+    base_value = explainer.expected_value
     if isinstance(base_value, (list, np.ndarray)):
         base_value = float(base_value[-1])
     else:

@@ -22,20 +22,11 @@ def build_features_from_csv(csv_path: str):
     assert "resume_text" in df.columns, "CSV must have 'resume_text' column"
     assert "label" in df.columns, "CSV must have 'label' column"
 
-    X_list = []
-    y_list = []
+    pairs = [(str(jd), str(res)) for jd, res in zip(df["jd_text"], df["resume_text"])]
+    rows = LocalMLModel.compute_feature_rows(pairs)
 
-    for _, row in df.iterrows():
-        jd = str(row["jd_text"])
-        res = str(row["resume_text"])
-        label = int(row["label"])
-
-        feats = LocalMLModel.compute_feature_dict(jd, res)
-        X_list.append([feats[col] for col in FEATURE_COLUMNS])
-        y_list.append(label)
-
-    X = np.array(X_list, dtype=float)
-    y = np.array(y_list, dtype=int)
+    X = np.array([[feats[col] for col in FEATURE_COLUMNS] for feats in rows], dtype=float)
+    y = df["label"].astype(int).to_numpy()
     return X, y
 
 

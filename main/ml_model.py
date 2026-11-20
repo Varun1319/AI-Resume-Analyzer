@@ -1,7 +1,8 @@
 # ml_model.py
 from config import RANKER_MODEL_PATH
 
-from typing import List, Dict
+from functools import lru_cache
+from typing import List, Dict, Tuple
 import os
 
 import numpy as np
@@ -9,8 +10,8 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import joblib
 
-from bert_model import BertResumeMatcher
-from skills_extractor import skill_extractor
+from bert_model import get_bert_matcher
+from skills_extractor import get_skill_extractor
 from experience_education import analyze_resume_experience_education
 
 
@@ -45,17 +46,21 @@ def _education_score(level: int) -> float:
     return mapping.get(level, 0.0)
 
 
-# Try to load trained ranker model (optional)
 MODEL_PATH = str(RANKER_MODEL_PATH)
-if os.path.exists(MODEL_PATH):
+
+
+@lru_cache(maxsize=1)
+def load_ranker():
+    """Trained ranker, loaded once on first use; None if it is missing or unreadable."""
+    if not os.path.exists(MODEL_PATH):
+        return None
     try:
-        TRAINED_RANKER = joblib.load(MODEL_PATH)
+        model = joblib.load(MODEL_PATH)
         print(f"[LocalMLModel] Loaded trained ranker from {MODEL_PATH}")
+        return model
     except Exception as e:
         print(f"[LocalMLModel] Failed to load trained ranker: {e}")
-        TRAINED_RANKER = None
-else:
-    TRAINED_RANKER = None
+        return None
 
 
 class LocalMLModel:
@@ -67,61 +72,49 @@ class LocalMLModel:
     - Skill Match (explicit technical alignment)
     - Experience & Education (profile quality)
 
-    If a trained XGBoost model is present at models/ranker_xgb.pkl,
-    it will be used as a meta-ranker on top of these features.
+    If a trained ranker is present at models/ranker_gb.pkl,
+    it is used as a meta-ranker on top of these features.
     Otherwise, a heuristic weighted formula is used.
     """
-    @staticmethod
-    def compute_fit_scores_for_jobs(resume_text: str, job_desc_list: list[str]) -> list[float]:
-        scores = []
-        for jd in job_desc_list:
-            if not jd or not jd.strip():
-                scores.append(0.0)
-            else:
-                s = LocalMLModel.compute_fit_score(jd, resume_text)
-            scores.append(s)
-        return scores
-
-
-
-    bert = BertResumeMatcher()  # loads once (GPU if available)
 
     @staticmethod
-    def _tfidf_scores(job_desc: str, resume_texts: List[str]) -> List[float]:
+    def _tfidf_score(job_desc: str, resume_text: str) -> float:
+        # Fitted per pair, as in training: a shared fit would make each score
+        # depend on which other documents were scored alongside it.
         vect = TfidfVectorizer(stop_words="english", max_features=5000)
-        tfidf = vect.fit_transform([job_desc] + resume_texts)
-        sims = cosine_similarity(tfidf[0:1], tfidf[1:])[0]
-        return [float(s) for s in sims]
+        tfidf = vect.fit_transform([job_desc, resume_text])
+        return float(cosine_similarity(tfidf[0:1], tfidf[1:2])[0][0])
+
+    @staticmethod
+    def compute_feature_rows(pairs: List[Tuple[str, str]]) -> List[Dict[str, float]]:
+        """
+        Feature dicts for many (job_desc, resume) pairs, with one batched BERT call.
+        Used for both scoring and training, so the model always sees the same features.
+        """
+        if not pairs:
+            return []
+
+        bert_scores = get_bert_matcher().pair_scores(pairs)
+        skills = get_skill_extractor()
+
+        rows = []
+        for (job_desc, resume_text), bert_score in zip(pairs, bert_scores):
+            skill_score, _, _ = skills.skill_match(resume_text, job_desc)
+            years, edu_level, _ = analyze_resume_experience_education(resume_text)
+            rows.append({
+                "tfidf_score": LocalMLModel._tfidf_score(job_desc, resume_text),
+                "bert_score": bert_score,
+                "skill_score": skill_score,
+                "exp_score": _normalize_experience(years),
+                "edu_score": _education_score(edu_level),
+                "exp_years": years,
+                "edu_level": float(edu_level),
+            })
+        return rows
 
     @staticmethod
     def compute_feature_dict(job_desc: str, resume_text: str) -> Dict[str, float]:
-        """
-        Compute the full feature vector used for ranking.
-        Can be used both for scoring and for training data generation.
-        """
-        # TF-IDF
-        tfidf_score = LocalMLModel._tfidf_scores(job_desc, [resume_text])[0]
-
-        # BERT
-        bert_score = LocalMLModel.bert.score(job_desc, resume_text)
-
-        # Skills
-        skill_score, _, _ = skill_extractor.skill_match(resume_text, job_desc)
-
-        # Experience & Education
-        years, edu_level, _ = analyze_resume_experience_education(resume_text)
-        exp_score = _normalize_experience(years)
-        edu_score = _education_score(edu_level)
-
-        return {
-            "tfidf_score": tfidf_score,
-            "bert_score": bert_score,
-            "skill_score": skill_score,
-            "exp_score": exp_score,
-            "edu_score": edu_score,
-            "exp_years": years,
-            "edu_level": float(edu_level),
-        }
+        return LocalMLModel.compute_feature_rows([(job_desc, resume_text)])[0]
 
     @staticmethod
     def _heuristic_score(feats: Dict[str, float]) -> float:
@@ -142,52 +135,44 @@ class LocalMLModel:
         return float(final_score)
 
     @staticmethod
-    def _ml_score(feats: Dict[str, float]) -> float:
+    def _ml_scores(rows: List[Dict[str, float]]) -> List[float]:
         """
-        Use trained meta-ranker (XGBoost) if available.
-        Otherwise fallback to heuristic.
+        Use the trained ranker if available (one batched prediction).
+        Otherwise fall back to the heuristic.
         """
-        if TRAINED_RANKER is None:
-            return LocalMLModel._heuristic_score(feats)
+        if not rows:
+            return []
 
-        # Build feature vector in fixed order
-        vec = np.array([[feats[col] for col in FEATURE_COLUMNS]], dtype=float)
+        ranker = load_ranker()
+        if ranker is not None:
+            X = np.array([[r[col] for col in FEATURE_COLUMNS] for r in rows], dtype=float)
+            try:
+                return [float(p) for p in ranker.predict_proba(X)[:, 1]]  # prob of "good match"
+            except Exception as e:
+                print(f"[LocalMLModel] Trained ranker error, using heuristic: {e}")
 
-        # Assume binary classifier with predict_proba
-        try:
-            proba = TRAINED_RANKER.predict_proba(vec)[0][1]  # prob of "good match"
-            return float(proba)
-        except Exception as e:
-            print(f"[LocalMLModel] Trained ranker error, using heuristic: {e}")
-            return LocalMLModel._heuristic_score(feats)
+        return [LocalMLModel._heuristic_score(r) for r in rows]
+
+    @staticmethod
+    def score_pairs(pairs: List[Tuple[str, str]]) -> List[float]:
+        """Match score for each (job_desc, resume) pair; a pair with a blank side scores 0."""
+        scores = [0.0] * len(pairs)
+        live = [i for i, (jd, res) in enumerate(pairs) if jd.strip() and res.strip()]
+        rows = LocalMLModel.compute_feature_rows([pairs[i] for i in live])
+        for i, score in zip(live, LocalMLModel._ml_scores(rows)):
+            scores[i] = score
+        return scores
 
     @staticmethod
     def compute_fit_score(job_desc: str, resume_text: str) -> float:
-        """
-        Public API: single-resume score.
-
-        - Computes feature dict
-        - Uses trained ML model if present
-        - Otherwise uses heuristic formula
-        """
-        if not job_desc.strip() or not resume_text.strip():
-            return 0.0
-
-        feats = LocalMLModel.compute_feature_dict(job_desc, resume_text)
-        return LocalMLModel._ml_score(feats)
+        return LocalMLModel.score_pairs([(job_desc, resume_text)])[0]
 
     @staticmethod
     def compute_fit_scores(job_desc: str, resume_texts: List[str]) -> List[float]:
-        """
-        Multi-resume scorer. Just applies compute_fit_score for each resume.
-        (We keep it simple; vectorization can be added later if needed.)
-        """
-        if not job_desc.strip() or not resume_texts:
-            return [0.0] * len(resume_texts)
+        """Score many resumes against one job description."""
+        return LocalMLModel.score_pairs([(job_desc, r) for r in resume_texts])
 
-        scores: List[float] = []
-        for res_text in resume_texts:
-            feats = LocalMLModel.compute_feature_dict(job_desc, res_text)
-            scores.append(LocalMLModel._ml_score(feats))
-
-        return scores
+    @staticmethod
+    def compute_fit_scores_for_jobs(resume_text: str, job_desc_list: List[str]) -> List[float]:
+        """Score one resume against many job descriptions."""
+        return LocalMLModel.score_pairs([(jd or "", resume_text) for jd in job_desc_list])
